@@ -1,0 +1,18 @@
+[package]
+name = "multiple-ica-icq"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "contract.rs"
+crate-type = ["cdylib", "rlib"]
+test = false
+doctest = false
+
+[dependencies]
+thiserror.workspace = true
+cosmwasm-std = { workspace = true, features = [ "stargate" ] }
+cosmwasm-schema.workspace = true
+neutron-sdk.workspace = true
+serde-json-wasm.workspace = true
+prost = "0.12.1"

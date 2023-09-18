@@ -1,0 +1,23 @@
+[workspace]
+members = [ 
+  "contracts/*", 
+  "tests/*", 
+  "xtask"
+]
+
+resolver = "2"
+
+[workspace.dependencies]
+thiserror = "1.0.38"
+serde = "1.0.157"
+anyhow = "1.0.70"
+xshell = "0.2.3"
+
+cosmwasm-schema = "1.2.2"
+cosmwasm-std = "1.2.2"
+serde-json-wasm = "1.0.0"
+
+cosmwasm-xtask = { git = "https://github.com/v26-solutions/cosmwasm-xtask" }
+neutron-sdk = { git = "https://github.com/neutron-org/neutron-sdk" }
+
+multiple-ica-icq = { path = "contracts/multiple-ica-icq" }

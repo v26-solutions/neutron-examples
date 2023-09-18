@@ -1,0 +1,15 @@
+[package]
+name = "e2e"
+version = "0.0.0"
+edition = "2021"
+
+[lib]
+path = "e2e.rs"
+doctest = false
+
+[dependencies]
+cosmwasm-std.workspace = true
+cosmwasm-xtask.workspace = true
+xshell.workspace = true
+anyhow.workspace = true
+multiple-ica-icq.workspace = true
