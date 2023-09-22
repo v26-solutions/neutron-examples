@@ -143,6 +143,9 @@ name = "bitflags"
 version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4682ae6287fcf752ecaabbfcc7b6f9b72aa33933dc23a554d853aea8eea8635"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "block-buffer"
@@ -360,7 +363,7 @@ dependencies = [
 [[package]]
 name = "cosmwasm-xtask"
 version = "0.1.0"
-source = "git+https://github.com/v26-solutions/cosmwasm-xtask#7ea1aa6bc2accf03f9934c4b1cbe1ac85454d8c8"
+source = "git+https://github.com/v26-solutions/cosmwasm-xtask#904049c53dc4e954395c15993e2f58e2d5c4c527"
 dependencies = [
  "bip39",
  "ctrlc",
@@ -530,6 +533,8 @@ dependencies = [
  "cosmwasm-std",
  "cosmwasm-xtask",
  "multiple-ica-icq",
+ "ron",
+ "serde",
  "xshell",
 ]
 
@@ -833,6 +838,7 @@ dependencies = [
  "cosmwasm-schema",
  "cosmwasm-std",
  "neutron-sdk",
+ "paste",
  "prost 0.12.1",
  "serde-json-wasm 1.0.0",
  "thiserror",
@@ -1082,6 +1088,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ron"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b91f7eff05f748767f183df4320a63d6936e9c6107d97c9e6bdd9784f4289c94"
+dependencies = [
+ "base64",
+ "bitflags",
+ "serde",
+ "serde_derive",
+]
+
+[[package]]
 name = "rustc_version"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1092,9 +1110,9 @@ dependencies = [
 
 [[package]]
 name = "rustix"
-version = "0.38.13"
+version = "0.38.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7db8590df6dfcd144d22afd1b83b36c21a18d7cbc1dc4bb5295a8712e9eb662"
+checksum = "747c788e9ce8e92b12cd485c49ddf90723550b654b32508f979b71a7b1ecda4f"
 dependencies = [
  "bitflags",
  "errno",

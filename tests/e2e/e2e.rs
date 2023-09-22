@@ -1,6 +1,8 @@
 use std::{sync::OnceLock, time::SystemTime};
 
+use ::multiple_ica_icq::msgs::{IcaLastBalance, IcaLastDelegation, IcaLastDelegationResponse};
 use anyhow::Result;
+use serde::Serialize;
 use xshell::Shell;
 
 use cosmwasm_std::Coin;
@@ -14,8 +16,20 @@ pub struct Ctx {
     pub network: Instance<NeutronLocalnet>,
 }
 
+pub fn pretty<T: Serialize>(t: &T) -> String {
+    ron::ser::to_string_pretty(
+        t,
+        ron::ser::PrettyConfig::default()
+            .indentor("  ".to_owned())
+            .separate_tuple_members(false),
+    )
+    .unwrap()
+}
+
 pub fn setup() -> Result<Ctx> {
-    static DIST: OnceLock<std::result::Result<(), cosmwasm_xtask::Error>> = OnceLock::new();
+    type DistResult = std::result::Result<(), cosmwasm_xtask::Error>;
+
+    static DIST: OnceLock<DistResult> = OnceLock::new();
 
     let sh = Shell::new()?;
 
@@ -74,72 +88,98 @@ pub fn label(prefix: &str) -> String {
 
 pub fn multiple_ica_icq(sh: &Shell, network: &dyn Network, key: &Key) -> Result<()> {
     use ::multiple_ica_icq::msgs::{
-        IcaLastBalanceResponse, IcaMetadata, IcaMetadataResponse, InstantiateMsg, QueryMsg,
+        IcaLastBalanceResponse, IcaMetadataResponse, InstantiateMsg, QueryMsg,
     };
 
-    let code_id = store("artifacts/multiple_ica_icq.wasm").send(sh, network, key)?;
+    let contract_path = "artifacts/multiple_ica_icq.wasm";
 
-    let contract = instantiate(
-        code_id,
-        &label("multiple_ica_icq"),
-        InstantiateMsg {
-            connection_id: "connection-0".to_owned(),
-            ica_set_size: 10,
-            icq_update_period: 6,
-            balance_icq_denom: "uatom".to_owned(),
-        },
-    )
-    .amount(1_000_000 * 10, "untrn")
-    .send(sh, network, key)?;
+    let ica_set_size = 10;
 
-    println!("wait for ICAs and ICQs to be registered");
+    eprintln!("storing contract: {contract_path}");
+
+    let code_id = store(contract_path).send(sh, network, key)?;
+
+    let init_msg = InstantiateMsg {
+        connection_id: "connection-0".to_owned(),
+        ica_set_size,
+        icq_update_period: 6,
+        balance_icq_denom: "uatom".to_owned(),
+        delegations_icq_validator: "cosmosvaloper18hl5c9xn5dze2g50uaw0l2mr02ew57zk0auktn"
+            .to_owned(),
+    };
+
+    let deposit = 1_000_000 * u128::from(ica_set_size) * 2;
+
+    eprintln!(
+        "instantiating contract code {code_id} with {deposit}untrn & params: {}",
+        pretty(&init_msg)
+    );
+
+    let contract = instantiate(code_id, &label("multiple_ica_icq"), init_msg)
+        // 2 ICQ deposits per ICA
+        .amount(deposit, "untrn")
+        .send(sh, network, key)?;
+
+    eprintln!("waiting for ICAs and ICQs to be registered...");
 
     let mut ica_idx = 0;
+
+    let mut block_count = 0;
 
     loop {
         let ica_metadata_res: IcaMetadataResponse =
             query(sh, network, &contract, &QueryMsg::IcaMetadata { ica_idx })?;
 
-        if let Some(IcaMetadata { address, icq_id }) = ica_metadata_res.metadata {
-            println!("multiple_ica_icq: ICA {ica_idx} registered: address = {address}, icq_id = {icq_id}");
+        if let Some(metadata) = ica_metadata_res.metadata {
+            eprintln!(
+                "multiple_ica_icq: ICA {ica_idx} registered: {}",
+                pretty(&metadata)
+            );
 
             ica_idx += 1;
 
-            if ica_idx == 10 {
+            if ica_idx == ica_set_size {
                 break;
             }
 
             continue;
         }
 
-        // wait until the next block
+        eprintln!("waiting for another block...");
+
         wait_for_blocks(sh, network)?;
+
+        block_count += 1;
     }
 
-    println!("wait for ICQ results to be posted");
+    eprintln!("all {ica_set_size} ICAs with 2 ICQs each registered in {block_count} blocks");
+
+    eprintln!("waiting for first balance ICQ results to be posted...");
 
     let mut ica_idx = 0;
 
+    let mut block_count = 0;
+
     loop {
-        let IcaLastBalanceResponse {
-            address,
-            balance,
-            last_local_update_height,
+        if let IcaLastBalanceResponse {
+            last_balance:
+                Some(IcaLastBalance {
+                    balance,
+                    address,
+                    last_submitted_result_local_height,
+                }),
         } = query(
             sh,
             network,
             &contract,
             &QueryMsg::IcaLastBalance { ica_idx },
-        )?;
+        )? {
+            let balance_msg = balance
+                .as_ref()
+                .map_or_else(|| "empty balance".to_owned(), Coin::to_string);
 
-        let address = address.expect("already waited for ICA registration");
+            eprintln!("multiple_ica_icq: ICA {ica_idx} {address} last balance: {balance_msg} updated at height {last_submitted_result_local_height}");
 
-        let balance_msg = balance
-            .as_ref()
-            .map_or_else(|| "empty balance".to_owned(), Coin::to_string);
-
-        if let Some(last_local_update_height) = last_local_update_height {
-            println!("multiple_ica_icq: ICA {ica_idx} {address} last balance: {balance_msg} updated at height {last_local_update_height}");
             ica_idx += 1;
 
             if ica_idx == 10 {
@@ -149,9 +189,57 @@ pub fn multiple_ica_icq(sh: &Shell, network: &dyn Network, key: &Key) -> Result<
             continue;
         }
 
-        // wait until the next block
+        eprintln!("waiting for another block...");
+
         wait_for_blocks(sh, network)?;
+
+        block_count += 1;
     }
+
+    eprintln!("all {ica_set_size} balance ICQs have results after {block_count} blocks");
+
+    eprintln!("waiting for first delegation ICQ results to be posted");
+
+    let mut ica_idx = 0;
+
+    let mut block_count = 0;
+
+    loop {
+        if let IcaLastDelegationResponse {
+            last_delegation:
+                Some(IcaLastDelegation {
+                    delegation,
+                    last_submitted_result_local_height,
+                }),
+        } = query(
+            sh,
+            network,
+            &contract,
+            &QueryMsg::IcaLastDelegation { ica_idx },
+        )? {
+            let delegation_msg = delegation
+                .as_ref()
+                .map_or_else(|| "not yet delegated".to_owned(), pretty);
+
+            eprintln!("multiple_ica_icq: ICA {ica_idx} last delegation: {delegation_msg} updated at height {last_submitted_result_local_height}");
+
+            ica_idx += 1;
+
+            if ica_idx == 10 {
+                break;
+            }
+
+            continue;
+        }
+
+        eprintln!("waiting for another block...");
+
+        wait_for_blocks(sh, network)?;
+
+        block_count += 1;
+    }
+
+    eprintln!("all {ica_set_size} delegation ICQs have results after {block_count} blocks");
 
     Ok(())
 }

@@ -1,5 +1,5 @@
 use cosmwasm_schema::cw_serde;
-use cosmwasm_std::Coin;
+use cosmwasm_std::{Coin, Delegation};
 
 #[cw_serde]
 pub struct InstantiateMsg {
@@ -11,6 +11,8 @@ pub struct InstantiateMsg {
     pub icq_update_period: u64,
     /// The asset denomination of the balance ICQ
     pub balance_icq_denom: String,
+    /// The validator of the delegations ICQ
+    pub delegations_icq_validator: String,
 }
 
 #[cw_serde]
@@ -21,6 +23,7 @@ pub enum QueryMsg {
     IcaSetSize {},
     IcaMetadata { ica_idx: u32 },
     IcaLastBalance { ica_idx: u32 },
+    IcaLastDelegation { ica_idx: u32 },
 }
 
 #[cw_serde]
@@ -31,7 +34,8 @@ pub struct IcaSetSizeResponse {
 #[cw_serde]
 pub struct IcaMetadata {
     pub address: String,
-    pub icq_id: u64,
+    pub balance_icq_id: u64,
+    pub delegation_icq_id: u64,
 }
 
 #[cw_serde]
@@ -41,14 +45,32 @@ pub struct IcaMetadataResponse {
 
 #[cw_serde]
 #[derive(Default)]
-pub struct IcaLastBalanceResponse {
-    pub address: Option<String>,
+pub struct IcaLastBalance {
     pub balance: Option<Coin>,
-    pub last_local_update_height: Option<u64>,
+    pub address: String,
+    pub last_submitted_result_local_height: u64,
 }
 
 #[cw_serde]
-pub struct OpenAckVersion {
+#[derive(Default)]
+pub struct IcaLastBalanceResponse {
+    pub last_balance: Option<IcaLastBalance>,
+}
+
+#[cw_serde]
+pub struct IcaLastDelegation {
+    pub delegation: Option<Delegation>,
+    pub last_submitted_result_local_height: u64,
+}
+
+#[cw_serde]
+#[derive(Default)]
+pub struct IcaLastDelegationResponse {
+    pub last_delegation: Option<IcaLastDelegation>,
+}
+
+#[cw_serde]
+pub(crate) struct OpenAckVersion {
     pub version: String,
     pub controller_connection_id: String,
     pub host_connection_id: String,

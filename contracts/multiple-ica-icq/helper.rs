@@ -2,14 +2,16 @@ use cosmwasm_std::{
     from_binary, Binary, Coin, Deps, QuerierWrapper, QueryRequest, Reply, StdError,
 };
 use neutron_sdk::{
-    bindings::query::NeutronQuery,
+    bindings::{query::NeutronQuery, types::RegisteredQuery},
     interchain_queries::{
         check_query_type, get_registered_query, queries::get_raw_interchain_query_result,
-        types::QueryType,
+        query_kv_result, types::QueryType, v045::types::Delegations,
     },
     NeutronError,
 };
 use prost::Message;
+
+use crate::msgs::IcaLastDelegation;
 
 macro_rules! debug {
     ($deps:ident, $($arg:tt)*) => {
@@ -93,8 +95,27 @@ pub enum QueryBalanceIcqError {
 
 #[derive(Debug, Clone)]
 pub struct RemoteBalance {
-    pub last_submitted_local_height: u64,
+    pub last_submitted_result_local_height: u64,
     pub balance: Option<Coin>,
+}
+
+fn updated_registered_kv_query(
+    deps: Deps<NeutronQuery>,
+    query_id: u64,
+) -> Result<Option<RegisteredQuery>, NeutronError> {
+    let res = get_registered_query(deps, query_id)?;
+
+    let registered_query = res.registered_query;
+
+    let last_submitted_local_height = registered_query.last_submitted_result_local_height;
+
+    if last_submitted_local_height == 0 {
+        return Ok(None);
+    }
+
+    check_query_type(registered_query.query_type, QueryType::KV)?;
+
+    Ok(Some(registered_query))
 }
 
 pub fn query_balance_icq(
@@ -109,17 +130,9 @@ pub fn query_balance_icq(
         pub amount: String,
     }
 
-    let registered_query = get_registered_query(deps, query_id)?;
-
-    let last_submitted_local_height = registered_query
-        .registered_query
-        .last_submitted_result_local_height;
-
-    if last_submitted_local_height == 0 {
+    let Some(registered_query) = updated_registered_kv_query(deps, query_id)? else {
         return Ok(None);
-    }
-
-    check_query_type(registered_query.registered_query.query_type, QueryType::KV)?;
+    };
 
     let registered_query_result = get_raw_interchain_query_result(deps, query_id)?;
 
@@ -133,9 +146,11 @@ pub fn query_balance_icq(
 
     let RawCoin { denom, amount } = RawCoin::decode(storage_entry.value.as_slice())?;
 
+    let last_submitted_result_local_height = registered_query.last_submitted_result_local_height;
+
     if denom.is_empty() && amount.is_empty() {
         return Ok(Some(RemoteBalance {
-            last_submitted_local_height,
+            last_submitted_result_local_height,
             balance: None,
         }));
     }
@@ -143,7 +158,32 @@ pub fn query_balance_icq(
     let amount = amount.parse()?;
 
     Ok(Some(RemoteBalance {
-        last_submitted_local_height,
+        last_submitted_result_local_height,
         balance: Some(Coin { denom, amount }),
+    }))
+}
+
+pub fn query_delegation_icq(
+    deps: Deps<NeutronQuery>,
+    query_id: u64,
+) -> Result<Option<IcaLastDelegation>, NeutronError> {
+    let Some(registered_query) = updated_registered_kv_query(deps, query_id)? else {
+        return Ok(None);
+    };
+
+    let delegations: Delegations = query_kv_result(deps, query_id)?;
+
+    assert!(
+        delegations.delegations.len() < 2,
+        "only one validator is ever delegated to"
+    );
+
+    let delegation = delegations.delegations.into_iter().next();
+
+    let last_submitted_result_local_height = registered_query.last_submitted_result_local_height;
+
+    Ok(Some(IcaLastDelegation {
+        delegation,
+        last_submitted_result_local_height,
     }))
 }

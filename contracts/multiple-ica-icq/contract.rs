@@ -13,17 +13,20 @@ pub mod state;
 use cosmwasm_std::{
     entry_point, to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Reply, Response, SubMsg,
 };
+use msgs::IcaLastDelegationResponse;
 use neutron_sdk::{
     bindings::{msg::NeutronMsg, query::NeutronQuery},
-    interchain_queries::v045::new_register_balance_query_msg,
+    interchain_queries::v045::{
+        new_register_balance_query_msg, new_register_delegator_delegations_query_msg,
+    },
     sudo::msg::SudoMsg,
 };
 
 use crate::{
     helper::{debug, RemoteBalance},
     msgs::{
-        ExecuteMsg, IcaLastBalanceResponse, IcaMetadata, IcaMetadataResponse, IcaSetSizeResponse,
-        InstantiateMsg, OpenAckVersion, QueryMsg,
+        ExecuteMsg, IcaLastBalance, IcaLastBalanceResponse, IcaMetadata, IcaMetadataResponse,
+        IcaSetSizeResponse, InstantiateMsg, OpenAckVersion, QueryMsg,
     },
 };
 
@@ -47,6 +50,21 @@ pub enum Error {
     InsufficientIcqDeposit,
 }
 
+const BALANCE_ICQ_KIND: u32 = 1;
+const DELEGATIONS_ICQ_KIND: u32 = 2;
+
+#[must_use]
+pub fn make_icq_reply_id(icq_type: u32, ica_idx: u32) -> u64 {
+    (u64::from(icq_type) << 32) | u64::from(ica_idx)
+}
+
+#[must_use]
+pub fn split_icq_reply_id(reply_id: u64) -> (u32, u32) {
+    let icq_type = u32::try_from(reply_id >> 32).unwrap();
+    let ica_idx = u32::try_from(reply_id.rotate_left(32) >> 32).unwrap();
+    (icq_type, ica_idx)
+}
+
 #[entry_point]
 pub fn instantiate(
     deps: DepsMut,
@@ -59,11 +77,13 @@ pub fn instantiate(
     // save configuration
     state::set_connection_id(deps.storage, &msg.connection_id);
 
-    state::set_balance_icq_denom(deps.storage, &msg.balance_icq_denom);
-
     state::set_ica_set_size(deps.storage, msg.ica_set_size);
 
     state::set_icq_update_period(deps.storage, msg.icq_update_period);
+
+    state::set_balance_icq_denom(deps.storage, &msg.balance_icq_denom);
+
+    state::set_delegations_icq_validator(deps.storage, &msg.delegations_icq_validator);
 
     // get required ICQ deposit fee
     let icq_deposit_fee = helper::icq_deposit_fee(&deps.querier)?;
@@ -75,7 +95,9 @@ pub fn instantiate(
         return Err(Error::IncorrectIcqDepositAsset);
     }
 
-    let required_deposit_amount = icq_deposit_fee.amount.u128() * u128::from(msg.ica_set_size);
+    let number_of_icqs = msg.ica_set_size * 2;
+
+    let required_deposit_amount = icq_deposit_fee.amount.u128() * u128::from(number_of_icqs);
 
     if deposit.amount.u128() < required_deposit_amount {
         return Err(Error::InsufficientIcqDeposit);
@@ -125,19 +147,37 @@ pub fn sudo_open_ack(
 
     let connection_id = state::connection_id(deps.storage);
 
-    let balance_icq_denom = state::balance_icq_denom(deps.storage);
-
     let icq_update_period = state::icq_update_period(deps.storage);
 
-    let icq_register_msg = new_register_balance_query_msg(
-        connection_id,
-        parsed_version.address,
+    let balance_icq_denom = state::balance_icq_denom(deps.storage);
+
+    let delegations_icq_validator = state::delegations_icq_validator(deps.storage);
+
+    let balance_icq_register_msg = new_register_balance_query_msg(
+        connection_id.clone(),
+        parsed_version.address.clone(),
         balance_icq_denom,
         icq_update_period,
     )?;
 
-    Ok(Response::default()
-        .add_submessage(SubMsg::reply_on_success(icq_register_msg, ica_idx.into())))
+    let delegations_icq_register_msg = new_register_delegator_delegations_query_msg(
+        connection_id,
+        parsed_version.address,
+        vec![delegations_icq_validator],
+        icq_update_period,
+    )?;
+
+    let response = Response::default()
+        .add_submessage(SubMsg::reply_on_success(
+            balance_icq_register_msg,
+            make_icq_reply_id(BALANCE_ICQ_KIND, ica_idx),
+        ))
+        .add_submessage(SubMsg::reply_on_success(
+            delegations_icq_register_msg,
+            make_icq_reply_id(DELEGATIONS_ICQ_KIND, ica_idx),
+        ));
+
+    Ok(response)
 }
 
 pub fn sudo_kv_query_result(
@@ -150,9 +190,17 @@ pub fn sudo_kv_query_result(
 
     let ica_addr = state::ica_addr(deps.storage, ica_idx).expect("the ica has an address");
 
+    let ica_kind = state::icq_kind(deps.storage, query_id).expect("the icq has a kind");
+
+    let kind_str = match ica_kind {
+        BALANCE_ICQ_KIND => stringify!(BALANCE_ICQ_KIND),
+        DELEGATIONS_ICQ_KIND => stringify!(DELEGATIONS_ICQ_KIND),
+        _ => unreachable!(),
+    };
+
     debug!(
         deps,
-        "received received query {query_id} update for ica: {ica_idx} => {ica_addr}"
+        "received {kind_str} ICQ {query_id} update for ICA {ica_idx} with address: {ica_addr}"
     );
 
     Ok(Response::default())
@@ -192,24 +240,48 @@ pub fn sudo(
 
 #[entry_point]
 pub fn reply(deps: DepsMut, _env: Env, reply: Reply) -> Result<Response, Error> {
-    debug!(deps, "received reply with id: {}", reply.id);
+    let reply_id = reply.id;
 
-    let ica_idx: u32 = reply.id.try_into().expect("reply id is a u32 ica index");
+    let (icq_kind, ica_idx) = split_icq_reply_id(reply_id);
+
+    debug!(
+        deps,
+        "received reply with id {}, split into ICQ kind {icq_kind} and ICA index {ica_idx}",
+        reply.id
+    );
 
     let icq_id = helper::parse_icq_registration_reply(reply)?;
 
-    debug!(deps, "recieved icq id for ica {}: {}", ica_idx, icq_id);
+    state::set_icq_ica_idx(deps.storage, icq_id, ica_idx);
 
-    state::set_ica_icq_id(deps.storage, ica_idx, icq_id);
+    state::set_icq_kind(deps.storage, icq_id, icq_kind);
+
+    match icq_kind {
+        BALANCE_ICQ_KIND => {
+            debug!(deps, "Got balance ICQ with id {icq_id} for ICA {ica_idx}");
+            state::set_ica_balance_icq_id(deps.storage, ica_idx, icq_id);
+        }
+
+        DELEGATIONS_ICQ_KIND => {
+            debug!(
+                deps,
+                "Got delegations ICQ with id {icq_id} for ICA {ica_idx}"
+            );
+            state::set_ica_delegations_icq_id(deps.storage, ica_idx, icq_id);
+        }
+
+        _ => {
+            debug!(
+                deps,
+                "received reply with id {reply_id} that has unknown ICQ kind: {icq_kind}",
+            );
+        }
+    };
 
     Ok(Response::default())
 }
 
-pub fn query_last_ica_balance(
-    deps: Deps<NeutronQuery>,
-    _env: Env,
-    ica_idx: u32,
-) -> Result<IcaLastBalanceResponse, Error> {
+pub fn ica_idx_in_bounds(deps: Deps<NeutronQuery>, ica_idx: u32) -> Result<bool, Error> {
     let ica_set_size = state::ica_set_size(deps.storage);
 
     if ica_idx >= ica_set_size {
@@ -219,37 +291,88 @@ pub fn query_last_ica_balance(
         });
     }
 
-    let address = state::ica_addr(deps.storage, ica_idx);
+    Ok(true)
+}
 
-    let Some(icq_id) = state::ica_icq_id(deps.storage, ica_idx) else {
-        return Ok(IcaLastBalanceResponse {
-            address,
-            ..Default::default()
-        });
+pub fn query_ica_metadata(
+    deps: Deps<NeutronQuery>,
+    ica_idx: u32,
+) -> Result<IcaMetadataResponse, Error> {
+    ica_idx_in_bounds(deps, ica_idx)?;
+
+    let maybe_ica_addr = state::ica_addr(deps.storage, ica_idx);
+
+    let maybe_balance_icq_id = state::ica_balance_icq_id(deps.storage, ica_idx);
+
+    let maybe_delegations_icq_id = state::ica_delegations_icq_id(deps.storage, ica_idx);
+
+    let metadata = maybe_ica_addr
+        .zip(maybe_balance_icq_id)
+        .zip(maybe_delegations_icq_id)
+        .map(
+            |((address, balance_icq_id), delegations_icq_id)| IcaMetadata {
+                address,
+                balance_icq_id,
+                delegation_icq_id: delegations_icq_id,
+            },
+        );
+
+    Ok(IcaMetadataResponse { metadata })
+}
+
+pub fn query_last_ica_balance(
+    deps: Deps<NeutronQuery>,
+    ica_idx: u32,
+) -> Result<IcaLastBalanceResponse, Error> {
+    ica_idx_in_bounds(deps, ica_idx)?;
+
+    let Some(icq_id) = state::ica_balance_icq_id(deps.storage, ica_idx) else {
+        return Ok(IcaLastBalanceResponse::default());
     };
 
-    debug!(deps, "querying balance icq with id: {icq_id}");
+    debug!(deps, "querying balance ICQ {icq_id} for ICA {ica_idx}");
 
     let Some(RemoteBalance {
-        last_submitted_local_height,
+        last_submitted_result_local_height,
         balance,
     }) = helper::query_balance_icq(deps, icq_id)?
     else {
-        return Ok(IcaLastBalanceResponse {
-            address,
-            ..Default::default()
-        });
+        return Ok(IcaLastBalanceResponse::default());
+    };
+
+    let address =
+        state::ica_addr(deps.storage, ica_idx).expect("a registered ica has an address set");
+
+    let last_balance = IcaLastBalance {
+        balance,
+        address,
+        last_submitted_result_local_height,
     };
 
     Ok(IcaLastBalanceResponse {
-        address,
-        balance,
-        last_local_update_height: Some(last_submitted_local_height),
+        last_balance: Some(last_balance),
     })
 }
 
+pub fn query_last_ica_delegation(
+    deps: Deps<NeutronQuery>,
+    ica_idx: u32,
+) -> Result<IcaLastDelegationResponse, Error> {
+    ica_idx_in_bounds(deps, ica_idx)?;
+
+    let Some(icq_id) = state::ica_delegations_icq_id(deps.storage, ica_idx) else {
+        return Ok(IcaLastDelegationResponse::default());
+    };
+
+    debug!(deps, "querying delegation ICQ {icq_id} for ICA {ica_idx}");
+
+    let last_delegation = helper::query_delegation_icq(deps, icq_id)?;
+
+    Ok(IcaLastDelegationResponse { last_delegation })
+}
+
 #[entry_point]
-pub fn query(deps: Deps<NeutronQuery>, env: Env, msg: QueryMsg) -> Result<Binary, Error> {
+pub fn query(deps: Deps<NeutronQuery>, _env: Env, msg: QueryMsg) -> Result<Binary, Error> {
     let res = match msg {
         QueryMsg::IcaSetSize {} => {
             let ica_set_size = state::ica_set_size(deps.storage);
@@ -258,31 +381,42 @@ pub fn query(deps: Deps<NeutronQuery>, env: Env, msg: QueryMsg) -> Result<Binary
         }
 
         QueryMsg::IcaMetadata { ica_idx } => {
-            let ica_set_size = state::ica_set_size(deps.storage);
+            let ica_metadata = query_ica_metadata(deps, ica_idx)?;
 
-            if ica_idx >= ica_set_size {
-                return Err(Error::IcaIndexOutOfBounds {
-                    ica_idx,
-                    ica_set_size,
-                });
-            }
-
-            let maybe_ica_addr = state::ica_addr(deps.storage, ica_idx);
-
-            let maybe_ica_icq_id = state::ica_icq_id(deps.storage, ica_idx);
-
-            let metadata = maybe_ica_addr
-                .zip(maybe_ica_icq_id)
-                .map(|(address, icq_id)| IcaMetadata { address, icq_id });
-
-            to_binary(&IcaMetadataResponse { metadata })?
+            to_binary(&ica_metadata)?
         }
 
         QueryMsg::IcaLastBalance { ica_idx } => {
-            let last_ica_balance = query_last_ica_balance(deps, env, ica_idx)?;
+            let last_ica_balance = query_last_ica_balance(deps, ica_idx)?;
+
             to_binary(&last_ica_balance)?
+        }
+
+        QueryMsg::IcaLastDelegation { ica_idx } => {
+            let last_ica_delegation = query_last_ica_delegation(deps, ica_idx)?;
+
+            to_binary(&last_ica_delegation)?
         }
     };
 
     Ok(res)
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn icq_reply_id_round_trip() {
+        for i in 0..100 {
+            assert_eq!(
+                (BALANCE_ICQ_KIND, i),
+                split_icq_reply_id(make_icq_reply_id(BALANCE_ICQ_KIND, i))
+            );
+            assert_eq!(
+                (DELEGATIONS_ICQ_KIND, i),
+                split_icq_reply_id(make_icq_reply_id(DELEGATIONS_ICQ_KIND, i))
+            );
+        }
+    }
 }
