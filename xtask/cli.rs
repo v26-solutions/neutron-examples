@@ -63,7 +63,7 @@ pub fn main() -> Result<()> {
         Command::Test(cmd) => match cmd {
             Test::E2e { args } => {
                 let _handle = NeutronLocalnet::initialize(&sh)?.start_local(&sh)?;
-                cmd!(sh, "cargo t {args...} -- --nocapture").run()?;
+                cmd!(sh, "cargo t {args...} -- --nocapture --test-threads 1").run()?;
             }
         },
     }

@@ -8,10 +8,10 @@
 
 pub mod helper;
 pub mod msgs;
-pub mod state;
 
 use cosmwasm_std::{
-    entry_point, to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Reply, Response, SubMsg,
+    entry_point, from_slice, to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Reply, Response,
+    SubMsg,
 };
 use msgs::IcaLastDelegationResponse;
 use neutron_sdk::{
@@ -22,12 +22,14 @@ use neutron_sdk::{
     sudo::msg::SudoMsg,
 };
 
-use crate::{
-    helper::{debug, RemoteBalance},
-    msgs::{
-        ExecuteMsg, IcaLastBalance, IcaLastBalanceResponse, IcaMetadata, IcaMetadataResponse,
-        IcaSetSizeResponse, InstantiateMsg, OpenAckVersion, QueryMsg,
-    },
+use crate::msgs::{
+    ExecuteMsg, IcaLastBalance, IcaLastBalanceResponse, IcaMetadata, IcaMetadataResponse,
+    IcaSetSizeResponse, InstantiateMsg, QueryMsg,
+};
+
+use common::{
+    combine_u32s, debug, ica_idx_from_port_id, icq_deposit_fee, parse_icq_registration_reply,
+    query_balance_icq, split_u64, OpenAckVersion, RemoteBalance,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -37,9 +39,9 @@ pub enum Error {
     #[error(transparent)]
     NeutronSdk(#[from] neutron_sdk::NeutronError),
     #[error(transparent)]
-    ParseReply(#[from] helper::ParseReplyError),
+    ParseReply(#[from] common::ParseReplyError),
     #[error(transparent)]
-    QueryBalanceIcq(#[from] helper::QueryBalanceIcqError),
+    QueryBalanceIcq(#[from] common::QueryBalanceIcqError),
     #[error("ica index {ica_idx} is out of bounds, ica set size is {ica_set_size}")]
     IcaIndexOutOfBounds { ica_idx: u32, ica_set_size: u32 },
     #[error("icq deposit missing")]
@@ -53,16 +55,20 @@ pub enum Error {
 const BALANCE_ICQ_KIND: u32 = 1;
 const DELEGATIONS_ICQ_KIND: u32 = 2;
 
-#[must_use]
-pub fn make_icq_reply_id(icq_type: u32, ica_idx: u32) -> u64 {
-    (u64::from(icq_type) << 32) | u64::from(ica_idx)
-}
+pub mod state {
+    use common::{init_config, map};
 
-#[must_use]
-pub fn split_icq_reply_id(reply_id: u64) -> (u32, u32) {
-    let icq_type = u32::try_from(reply_id >> 32).unwrap();
-    let ica_idx = u32::try_from(reply_id.rotate_left(32) >> 32).unwrap();
-    (icq_type, ica_idx)
+    init_config!(delegations_icq_validator : String);
+    init_config!(connection_id             : String);
+    init_config!(balance_icq_denom         : String);
+    init_config!(ica_set_size              : u32);
+    init_config!(icq_update_period         : u64);
+
+    map!(ica: u32 => addr               : String);
+    map!(icq: u64 => ica_idx            : u32);
+    map!(icq: u64 => kind               : u32);
+    map!(ica: u32 => balance_icq_id     : u64);
+    map!(ica: u32 => delegations_icq_id : u64);
 }
 
 #[entry_point]
@@ -86,7 +92,7 @@ pub fn instantiate(
     state::set_delegations_icq_validator(deps.storage, &msg.delegations_icq_validator);
 
     // get required ICQ deposit fee
-    let icq_deposit_fee = helper::icq_deposit_fee(&deps.querier)?;
+    let icq_deposit_fee = icq_deposit_fee(deps.as_ref())?;
 
     // check instantiator has provided the required funds for an ICQ per ICA
     let deposit = info.funds.first().ok_or(Error::IcqDepositMissing)?;
@@ -138,10 +144,10 @@ pub fn sudo_open_ack(
 
     // The version variable contains a JSON value with multiple fields,
     // including the generated account address.
-    let parsed_version: OpenAckVersion = serde_json_wasm::from_str(counterparty_version.as_str())
-        .expect("valid counterparty_version");
+    let parsed_version: OpenAckVersion =
+        from_slice(counterparty_version.as_bytes()).expect("valid counterparty_version");
 
-    let ica_idx = helper::ica_idx_from_port_id(&port_id).expect("valid port id");
+    let ica_idx = ica_idx_from_port_id(&port_id).expect("valid port id");
 
     state::set_ica_addr(deps.storage, ica_idx, &parsed_version.address);
 
@@ -170,11 +176,11 @@ pub fn sudo_open_ack(
     let response = Response::default()
         .add_submessage(SubMsg::reply_on_success(
             balance_icq_register_msg,
-            make_icq_reply_id(BALANCE_ICQ_KIND, ica_idx),
+            combine_u32s(BALANCE_ICQ_KIND, ica_idx),
         ))
         .add_submessage(SubMsg::reply_on_success(
             delegations_icq_register_msg,
-            make_icq_reply_id(DELEGATIONS_ICQ_KIND, ica_idx),
+            combine_u32s(DELEGATIONS_ICQ_KIND, ica_idx),
         ));
 
     Ok(response)
@@ -242,7 +248,7 @@ pub fn sudo(
 pub fn reply(deps: DepsMut, _env: Env, reply: Reply) -> Result<Response, Error> {
     let reply_id = reply.id;
 
-    let (icq_kind, ica_idx) = split_icq_reply_id(reply_id);
+    let (icq_kind, ica_idx) = split_u64(reply_id);
 
     debug!(
         deps,
@@ -250,7 +256,7 @@ pub fn reply(deps: DepsMut, _env: Env, reply: Reply) -> Result<Response, Error> 
         reply.id
     );
 
-    let icq_id = helper::parse_icq_registration_reply(reply)?;
+    let icq_id = parse_icq_registration_reply(reply)?;
 
     state::set_icq_ica_idx(deps.storage, icq_id, ica_idx);
 
@@ -335,7 +341,7 @@ pub fn query_last_ica_balance(
     let Some(RemoteBalance {
         last_submitted_result_local_height,
         balance,
-    }) = helper::query_balance_icq(deps, icq_id)?
+    }) = query_balance_icq(deps, icq_id)?
     else {
         return Ok(IcaLastBalanceResponse::default());
     };
@@ -411,11 +417,11 @@ mod test {
         for i in 0..100 {
             assert_eq!(
                 (BALANCE_ICQ_KIND, i),
-                split_icq_reply_id(make_icq_reply_id(BALANCE_ICQ_KIND, i))
+                split_u64(combine_u32s(BALANCE_ICQ_KIND, i))
             );
             assert_eq!(
                 (DELEGATIONS_ICQ_KIND, i),
-                split_icq_reply_id(make_icq_reply_id(DELEGATIONS_ICQ_KIND, i))
+                split_u64(combine_u32s(DELEGATIONS_ICQ_KIND, i))
             );
         }
     }

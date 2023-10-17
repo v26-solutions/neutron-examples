@@ -1,15 +1,15 @@
 [package]
-name = "multiple-ica-icq"
-version = "0.1.0"
+name = "common"
+version = "0.0.0"
 edition = "2021"
 
 [lib]
-path = "contract.rs"
-crate-type = ["cdylib", "rlib"]
+path = "common.rs"
 test = false
 doctest = false
 
 [dependencies]
+serde = { workspace = true, features = [ "derive" ] }
 thiserror.workspace = true
 prost.workspace = true
 
@@ -17,4 +17,4 @@ cosmwasm-std = { workspace = true, features = [ "stargate" ] }
 cosmwasm-schema.workspace = true
 neutron-sdk.workspace = true
 
-common.workspace = true
+paste = "1.0.14"

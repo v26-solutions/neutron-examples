@@ -266,6 +266,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "acbf1af155f9b9ef647e42cdc158db4b64a1b61f743629225fde6f3e0be2a7c7"
 
 [[package]]
+name = "common"
+version = "0.0.0"
+dependencies = [
+ "cosmwasm-schema",
+ "cosmwasm-std",
+ "neutron-sdk",
+ "paste",
+ "prost 0.12.1",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
 name = "const-oid"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -363,7 +376,7 @@ dependencies = [
 [[package]]
 name = "cosmwasm-xtask"
 version = "0.1.0"
-source = "git+https://github.com/v26-solutions/cosmwasm-xtask#904049c53dc4e954395c15993e2f58e2d5c4c527"
+source = "git+https://github.com/v26-solutions/cosmwasm-xtask#601612abad1a38d3d420658713c95e1a3226ba3a"
 dependencies = [
  "bip39",
  "ctrlc",
@@ -532,6 +545,7 @@ dependencies = [
  "anyhow",
  "cosmwasm-std",
  "cosmwasm-xtask",
+ "ibc-transfer-roundtrip",
  "multiple-ica-icq",
  "ron",
  "serde",
@@ -721,6 +735,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "hmac-sha256"
+version = "1.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3688e69b38018fec1557254f64c8dc2cc8ec502890182f395dbb0aa997aa5735"
+
+[[package]]
 name = "humantime"
 version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -747,6 +767,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f31827a206f56af32e590ba56d5d2d085f558508192593743f16b2306495269f"
 dependencies = [
  "cc",
+]
+
+[[package]]
+name = "ibc-transfer-roundtrip"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "cosmwasm-schema",
+ "cosmwasm-std",
+ "hex",
+ "hmac-sha256",
+ "neutron-sdk",
+ "prost 0.12.1",
+ "serde",
+ "serde-json-wasm 1.0.0",
+ "thiserror",
 ]
 
 [[package]]
@@ -835,12 +871,11 @@ checksum = "8f232d6ef707e1956a43342693d2a31e72989554d58299d7a88738cc95b0d35c"
 name = "multiple-ica-icq"
 version = "0.1.0"
 dependencies = [
+ "common",
  "cosmwasm-schema",
  "cosmwasm-std",
  "neutron-sdk",
- "paste",
  "prost 0.12.1",
- "serde-json-wasm 1.0.0",
  "thiserror",
 ]
 
@@ -1652,7 +1687,7 @@ checksum = "7e2c411759b501fb9501aac2b1b2d287a6e93e5bdcf13c25306b23e1b716dd0e"
 
 [[package]]
 name = "xtask"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
  "anyhow",
  "clap",

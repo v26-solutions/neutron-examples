@@ -39,10 +39,10 @@ You have two options to deploy and run the contracts locally:
 ❯ : cargo x start-local
 
 // in another terminal
-❯ : cargo t -- --no-capture
+❯ : cargo t <example-name> -- --no-capture
 ```
 
-2. Start a local network, deploy the contracts and run them all once
+2. Start a local network, deploy the contracts and run them all one at a time
 
 ```
 ❯ : cargo x test e2e

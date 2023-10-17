@@ -68,13 +68,3 @@ pub struct IcaLastDelegation {
 pub struct IcaLastDelegationResponse {
     pub last_delegation: Option<IcaLastDelegation>,
 }
-
-#[cw_serde]
-pub(crate) struct OpenAckVersion {
-    pub version: String,
-    pub controller_connection_id: String,
-    pub host_connection_id: String,
-    pub address: String,
-    pub encoding: String,
-    pub tx_type: String,
-}

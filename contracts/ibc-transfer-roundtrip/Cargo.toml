@@ -1,5 +1,5 @@
 [package]
-name = "multiple-ica-icq"
+name = "ibc-transfer-roundtrip"
 version = "0.1.0"
 edition = "2021"
 
@@ -12,9 +12,13 @@ doctest = false
 [dependencies]
 thiserror.workspace = true
 prost.workspace = true
+serde.workspace = true
+serde-json-wasm.workspace = true
 
 cosmwasm-std = { workspace = true, features = [ "stargate" ] }
 cosmwasm-schema.workspace = true
 neutron-sdk.workspace = true
-
 common.workspace = true
+
+hmac-sha256 = "1.1.7"
+hex = "0.4.3"
