@@ -449,6 +449,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cw-storage-macros"
+version = "0.1.0"
+source = "git+https://github.com/v26-solutions/cw-storage-macros?rev=ab16ce2#ab16ce2bd7574531ccf702ed9a71943df176834a"
+dependencies = [
+ "paste",
+]
+
+[[package]]
 name = "cw-storage-plus"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -776,6 +784,7 @@ dependencies = [
  "common",
  "cosmwasm-schema",
  "cosmwasm-std",
+ "cw-storage-macros",
  "hex",
  "hmac-sha256",
  "neutron-sdk",
@@ -874,6 +883,7 @@ dependencies = [
  "common",
  "cosmwasm-schema",
  "cosmwasm-std",
+ "cw-storage-macros",
  "neutron-sdk",
  "prost 0.12.1",
  "thiserror",

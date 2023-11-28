@@ -89,30 +89,30 @@ macro_rules! hash {
 }
 
 pub mod state {
-    use common::{init_config, item, map};
+    use cw_storage_macros::{item, map};
 
-    init_config!(connection_id        : String);
-    init_config!(ibc_transfer_channel : String);
-    init_config!(remote_denom         : String);
-    init_config!(icq_update_period    : u64);
-    init_config!(host_ibc_denom       : String);
+    item!(connection_id!        : String);
+    item!(ibc_transfer_channel! : String);
+    item!(remote_denom!         : String);
+    item!(icq_update_period!    : u64);
+    item!(host_ibc_denom!       : String);
 
     item!(ica_count : u32);
 
-    map!(owner       : &str => ica_idx          : u32);
-    map!(tx_hash     : &str => ica_idx          : u32);
-    map!(rx_hash     : &str => ica_idx          : u32);
-    map!(ica         : u32  => owner            : String);
-    map!(ica         : u32  => addr             : String);
-    map!(ica         : u32  => icq_id           : u64);
-    map!(ica         : u32  => tx_issued_count  : u32);
-    map!(ica         : u32  => tx_success_count : u32);
-    map!(ica         : u32  => tx_error_count   : u32);
-    map!(ica         : u32  => tx_timeout_count : u32);
-    map!(ica         : u32  => round_trip_count : u32);
-    map!(ica_tx_kind : u64  => seq_num          : u64);
-    map!(ica_err_idx : u64  => msg              : String);
-    map!(icq         : u64  => ica_idx          : u32);
+    map!(owner       : str => ica_idx          : u32);
+    map!(tx_hash     : str => ica_idx          : u32);
+    map!(rx_hash     : str => ica_idx          : u32);
+    map!(ica         : u32 => owner            : String);
+    map!(ica         : u32 => addr             : String);
+    map!(ica         : u32 => icq_id           : u64);
+    map!(ica         : u32 => tx_issued_count  : u32);
+    map!(ica         : u32 => tx_success_count : u32);
+    map!(ica         : u32 => tx_error_count   : u32);
+    map!(ica         : u32 => tx_timeout_count : u32);
+    map!(ica         : u32 => round_trip_count : u32);
+    map!(ica_tx_kind : u64 => seq_num          : u64);
+    map!(ica_err_idx : u64 => msg              : String);
+    map!(icq         : u64 => ica_idx          : u32);
 }
 
 #[entry_point]
@@ -168,7 +168,7 @@ pub fn execute_setup_ica(
 
     state::set_owner_ica_idx(deps.storage, &owner, next_ica_idx);
 
-    state::set_ica_owner(deps.storage, next_ica_idx, &owner);
+    state::set_ica_owner(deps.storage, &next_ica_idx, &owner);
 
     let connection_id = state::connection_id(deps.storage);
 
@@ -232,7 +232,7 @@ pub fn execute_transfer_funds(
 
     let ica_idx = state::owner_ica_idx(deps.storage, owner).ok_or(Error::NoIcaSetup)?;
 
-    let ica_addr = state::ica_addr(deps.storage, ica_idx).ok_or(Error::NoIcaSetup)?;
+    let ica_addr = state::ica_addr(deps.storage, &ica_idx).ok_or(Error::NoIcaSetup)?;
 
     let source_channel = state::ibc_transfer_channel(deps.storage);
 
@@ -371,14 +371,14 @@ pub fn execute_retrieve_funds(
 
     let ica_idx = state::owner_ica_idx(deps.storage, owner).ok_or(Error::NoIcaSetup)?;
 
-    let ica_balance_icq = state::ica_icq_id(deps.storage, ica_idx).ok_or(Error::NoIcaSetup)?;
+    let ica_balance_icq = state::ica_icq_id(deps.storage, &ica_idx).ok_or(Error::NoIcaSetup)?;
 
     let non_zero_remote_balance = query_balance_icq(deps.as_ref(), ica_balance_icq)?
         .and_then(|res| res.balance)
         .filter(|remote_balance| !remote_balance.amount.is_zero())
         .ok_or(Error::NoFundsToRetrieve)?;
 
-    let ica_addr = state::ica_addr(deps.storage, ica_idx).ok_or(Error::NoIcaSetup)?;
+    let ica_addr = state::ica_addr(deps.storage, &ica_idx).ok_or(Error::NoIcaSetup)?;
 
     let connection_id = state::connection_id(deps.storage);
 
@@ -386,7 +386,7 @@ pub fn execute_retrieve_funds(
 
     let timeout_timestamp = env.block.time.plus_seconds(DEFAULT_TIMEOUT_SECONDS).nanos();
 
-    let tx_idx = state::ica_tx_issued_count(deps.storage, ica_idx).unwrap_or_default();
+    let tx_idx = state::ica_tx_issued_count(deps.storage, &ica_idx).unwrap_or_default();
 
     let rx_hash = hash!(
         ica_addr,
@@ -434,11 +434,11 @@ pub fn execute_funds_retrieved_hook(
     let ica_idx = state::rx_hash_ica_idx(deps.storage, rx_hash).ok_or(Error::InvalidRxHash)?;
 
     let current_round_trip_count =
-        state::ica_round_trip_count(deps.storage, ica_idx).unwrap_or_default();
+        state::ica_round_trip_count(deps.storage, &ica_idx).unwrap_or_default();
 
-    state::set_ica_round_trip_count(deps.storage, ica_idx, current_round_trip_count + 1);
+    state::set_ica_round_trip_count(deps.storage, &ica_idx, current_round_trip_count + 1);
 
-    let ica_owner = state::ica_owner(deps.storage, ica_idx).expect("ica must have an owner");
+    let ica_owner = state::ica_owner(deps.storage, &ica_idx).expect("ica must have an owner");
 
     // forward the funds recieved from the ICA to it's owner
     let msg = BankMsg::Send {
@@ -490,7 +490,7 @@ pub fn sudo_open_ack(
 
     let ica_addr = parsed_version.address;
 
-    state::set_ica_addr(deps.storage, ica_idx, &ica_addr);
+    state::set_ica_addr(deps.storage, &ica_idx, &ica_addr);
 
     let connection_id = state::connection_id(deps.storage);
 
@@ -529,7 +529,7 @@ pub fn sudo_response(
         .expect("a sequence number is always associated with an ica idx");
 
     let mut tx_success_count =
-        state::ica_tx_success_count(deps.storage, ica_idx).unwrap_or_default();
+        state::ica_tx_success_count(deps.storage, &ica_idx).unwrap_or_default();
 
     tx_success_count += 1;
 
@@ -538,7 +538,7 @@ pub fn sudo_response(
         "ICA {ica_idx} issued tx with sequence number {tx_seq_num} successfully, total success count: {tx_success_count}"
     );
 
-    state::set_ica_tx_success_count(deps.storage, ica_idx, tx_success_count);
+    state::set_ica_tx_success_count(deps.storage, &ica_idx, tx_success_count);
 
     Ok(Response::default())
 }
@@ -559,7 +559,7 @@ pub fn sudo_error(
     let ica_idx = state::tx_hash_ica_idx(deps.storage, &tx_hash)
         .expect("a sequence number is always associated with an ica idx");
 
-    let mut tx_error_count = state::ica_tx_error_count(deps.storage, ica_idx).unwrap_or_default();
+    let mut tx_error_count = state::ica_tx_error_count(deps.storage, &ica_idx).unwrap_or_default();
 
     let error_key = combine_u32s(ica_idx, tx_error_count);
 
@@ -570,9 +570,9 @@ pub fn sudo_error(
         "ICA {ica_idx} issued tx with sequence number {tx_seq_num} failed: {error}, total error count: {tx_error_count}"
     );
 
-    state::set_ica_tx_error_count(deps.storage, ica_idx, tx_error_count);
+    state::set_ica_tx_error_count(deps.storage, &ica_idx, tx_error_count);
 
-    state::set_ica_err_idx_msg(deps.storage, error_key, &error);
+    state::set_ica_err_idx_msg(deps.storage, &error_key, &error);
 
     Ok(Response::default())
 }
@@ -593,7 +593,7 @@ pub fn sudo_timeout(
         .expect("a sequence number is always associated with an ica idx");
 
     let mut tx_timeout_count =
-        state::ica_tx_timeout_count(deps.storage, ica_idx).unwrap_or_default();
+        state::ica_tx_timeout_count(deps.storage, &ica_idx).unwrap_or_default();
 
     tx_timeout_count += 1;
 
@@ -602,7 +602,7 @@ pub fn sudo_timeout(
         "ICA {ica_idx} issued tx with sequence number {tx_seq_num} timed out, total timeout count: {tx_timeout_count}"
     );
 
-    state::set_ica_tx_timeout_count(deps.storage, ica_idx, tx_timeout_count);
+    state::set_ica_tx_timeout_count(deps.storage, &ica_idx, tx_timeout_count);
 
     Ok(Response::default())
 }
@@ -612,9 +612,9 @@ pub fn sudo_kv_query_result(
     query_id: u64,
 ) -> Result<Response<NeutronMsg>, Error> {
     let ica_idx =
-        state::icq_ica_idx(deps.storage, query_id).expect("the icq is associated with an ica");
+        state::icq_ica_idx(deps.storage, &query_id).expect("the icq is associated with an ica");
 
-    let ica_addr = state::ica_addr(deps.storage, ica_idx).expect("the ica has an address");
+    let ica_addr = state::ica_addr(deps.storage, &ica_idx).expect("the ica has an address");
 
     debug!(
         deps,
@@ -661,9 +661,9 @@ pub fn reply_register_icq(deps: DepsMut, reply: Reply, ica_idx: u32) -> Result<R
 
     debug!(deps, "ICA {ica_idx} balance ICQ ID: {icq_id}",);
 
-    state::set_ica_icq_id(deps.storage, ica_idx, icq_id);
+    state::set_ica_icq_id(deps.storage, &ica_idx, icq_id);
 
-    state::set_icq_ica_idx(deps.storage, icq_id, ica_idx);
+    state::set_icq_ica_idx(deps.storage, &icq_id, ica_idx);
 
     Ok(Response::default())
 }
@@ -682,9 +682,9 @@ pub fn reply_issue_tx(
 
     state::set_tx_hash_ica_idx(deps.storage, &tx_hash, ica_idx);
 
-    state::set_ica_tx_kind_seq_num(deps.storage, combine_u32s(ica_idx, tx_kind), tx_seq_num);
+    state::set_ica_tx_kind_seq_num(deps.storage, &combine_u32s(ica_idx, tx_kind), tx_seq_num);
 
-    let mut tx_issue_count = state::ica_tx_issued_count(deps.storage, ica_idx).unwrap_or_default();
+    let mut tx_issue_count = state::ica_tx_issued_count(deps.storage, &ica_idx).unwrap_or_default();
 
     tx_issue_count += 1;
 
@@ -693,7 +693,7 @@ pub fn reply_issue_tx(
         "ICA {ica_idx} issued tx {tx_issue_count} with sequence number {tx_seq_num}"
     );
 
-    state::set_ica_tx_issued_count(deps.storage, ica_idx, tx_issue_count);
+    state::set_ica_tx_issued_count(deps.storage, &ica_idx, tx_issue_count);
 
     Ok(Response::default())
 }
@@ -734,9 +734,9 @@ pub fn query_ica_metadata(
         return Ok(IcaMetadataResponse::default());
     };
 
-    let address = state::ica_addr(deps.storage, ica_idx);
+    let address = state::ica_addr(deps.storage, &ica_idx);
 
-    let balance_icq_id = state::ica_icq_id(deps.storage, ica_idx);
+    let balance_icq_id = state::ica_icq_id(deps.storage, &ica_idx);
 
     Ok(IcaMetadataResponse {
         metadata: Some(IcaMetadata {
@@ -757,7 +757,7 @@ pub fn query_last_ica_balance(
         return Ok(IcaLastBalanceResponse::default());
     };
 
-    let Some(icq_id) = state::ica_icq_id(deps.storage, ica_idx) else {
+    let Some(icq_id) = state::ica_icq_id(deps.storage, &ica_idx) else {
         return Ok(IcaLastBalanceResponse::default());
     };
 
@@ -772,7 +772,7 @@ pub fn query_last_ica_balance(
     };
 
     let address =
-        state::ica_addr(deps.storage, ica_idx).expect("a registered ica has an address set");
+        state::ica_addr(deps.storage, &ica_idx).expect("a registered ica has an address set");
 
     let last_balance = IcaLastBalance {
         balance,
@@ -795,21 +795,21 @@ pub fn query_ica_tx_status(
         return Ok(IcaTxStatusResponse::default());
     };
 
-    let issued = state::ica_tx_issued_count(deps.storage, ica_idx).unwrap_or_default();
+    let issued = state::ica_tx_issued_count(deps.storage, &ica_idx).unwrap_or_default();
 
-    let success = state::ica_tx_success_count(deps.storage, ica_idx).unwrap_or_default();
+    let success = state::ica_tx_success_count(deps.storage, &ica_idx).unwrap_or_default();
 
-    let error = state::ica_tx_error_count(deps.storage, ica_idx).unwrap_or_default();
+    let error = state::ica_tx_error_count(deps.storage, &ica_idx).unwrap_or_default();
 
-    let timeout = state::ica_tx_timeout_count(deps.storage, ica_idx).unwrap_or_default();
+    let timeout = state::ica_tx_timeout_count(deps.storage, &ica_idx).unwrap_or_default();
 
-    let roundtrips = state::ica_round_trip_count(deps.storage, ica_idx).unwrap_or_default();
+    let roundtrips = state::ica_round_trip_count(deps.storage, &ica_idx).unwrap_or_default();
 
     let last_transfer_seq_num =
-        state::ica_tx_kind_seq_num(deps.storage, combine_u32s(ica_idx, TRANSFER_TX_REPLY_KIND));
+        state::ica_tx_kind_seq_num(deps.storage, &combine_u32s(ica_idx, TRANSFER_TX_REPLY_KIND));
 
     let last_retrieve_seq_num =
-        state::ica_tx_kind_seq_num(deps.storage, combine_u32s(ica_idx, RETRIEVE_TX_REPLY_KIND));
+        state::ica_tx_kind_seq_num(deps.storage, &combine_u32s(ica_idx, RETRIEVE_TX_REPLY_KIND));
 
     let status = IcaTxStatus {
         issued,
@@ -837,7 +837,7 @@ pub fn query_ica_tx_error(
 
     let error_key = combine_u32s(ica_idx, error_idx);
 
-    let error = state::ica_err_idx_msg(deps.storage, error_key);
+    let error = state::ica_err_idx_msg(deps.storage, &error_key);
 
     Ok(IcaTxErrorResponse { error })
 }

@@ -17,6 +17,7 @@ serde-json-wasm.workspace = true
 
 cosmwasm-std = { workspace = true, features = [ "stargate" ] }
 cosmwasm-schema.workspace = true
+cw-storage-macros.workspace = true
 neutron-sdk.workspace = true
 common.workspace = true
 

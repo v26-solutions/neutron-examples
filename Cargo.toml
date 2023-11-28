@@ -19,6 +19,7 @@ cosmwasm-schema = "1.2.2"
 cosmwasm-std = "1.2.2"
 serde-json-wasm = "1.0.0"
 
+cw-storage-macros = { git = "https://github.com/v26-solutions/cw-storage-macros", rev = "ab16ce2" }
 cosmwasm-xtask = { git = "https://github.com/v26-solutions/cosmwasm-xtask" }
 neutron-sdk = { git = "https://github.com/neutron-org/neutron-sdk" }
 

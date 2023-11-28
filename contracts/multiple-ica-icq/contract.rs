@@ -56,13 +56,13 @@ const BALANCE_ICQ_KIND: u32 = 1;
 const DELEGATIONS_ICQ_KIND: u32 = 2;
 
 pub mod state {
-    use common::{init_config, map};
+    use cw_storage_macros::{item, map};
 
-    init_config!(delegations_icq_validator : String);
-    init_config!(connection_id             : String);
-    init_config!(balance_icq_denom         : String);
-    init_config!(ica_set_size              : u32);
-    init_config!(icq_update_period         : u64);
+    item!(delegations_icq_validator! : String);
+    item!(connection_id!             : String);
+    item!(balance_icq_denom!         : String);
+    item!(ica_set_size!              : u32);
+    item!(icq_update_period!         : u64);
 
     map!(ica: u32 => addr               : String);
     map!(icq: u64 => ica_idx            : u32);
@@ -149,7 +149,7 @@ pub fn sudo_open_ack(
 
     let ica_idx = ica_idx_from_port_id(&port_id).expect("valid port id");
 
-    state::set_ica_addr(deps.storage, ica_idx, &parsed_version.address);
+    state::set_ica_addr(deps.storage, &ica_idx, &parsed_version.address);
 
     let connection_id = state::connection_id(deps.storage);
 
@@ -192,11 +192,11 @@ pub fn sudo_kv_query_result(
     query_id: u64,
 ) -> Result<Response<NeutronMsg>, Error> {
     let ica_idx =
-        state::icq_ica_idx(deps.storage, query_id).expect("the icq is associated with an ica");
+        state::icq_ica_idx(deps.storage, &query_id).expect("the icq is associated with an ica");
 
-    let ica_addr = state::ica_addr(deps.storage, ica_idx).expect("the ica has an address");
+    let ica_addr = state::ica_addr(deps.storage, &ica_idx).expect("the ica has an address");
 
-    let ica_kind = state::icq_kind(deps.storage, query_id).expect("the icq has a kind");
+    let ica_kind = state::icq_kind(deps.storage, &query_id).expect("the icq has a kind");
 
     let kind_str = match ica_kind {
         BALANCE_ICQ_KIND => stringify!(BALANCE_ICQ_KIND),
@@ -258,14 +258,14 @@ pub fn reply(deps: DepsMut, _env: Env, reply: Reply) -> Result<Response, Error> 
 
     let icq_id = parse_icq_registration_reply(reply)?;
 
-    state::set_icq_ica_idx(deps.storage, icq_id, ica_idx);
+    state::set_icq_ica_idx(deps.storage, &icq_id, ica_idx);
 
-    state::set_icq_kind(deps.storage, icq_id, icq_kind);
+    state::set_icq_kind(deps.storage, &icq_id, icq_kind);
 
     match icq_kind {
         BALANCE_ICQ_KIND => {
             debug!(deps, "Got balance ICQ with id {icq_id} for ICA {ica_idx}");
-            state::set_ica_balance_icq_id(deps.storage, ica_idx, icq_id);
+            state::set_ica_balance_icq_id(deps.storage, &ica_idx, icq_id);
         }
 
         DELEGATIONS_ICQ_KIND => {
@@ -273,7 +273,7 @@ pub fn reply(deps: DepsMut, _env: Env, reply: Reply) -> Result<Response, Error> 
                 deps,
                 "Got delegations ICQ with id {icq_id} for ICA {ica_idx}"
             );
-            state::set_ica_delegations_icq_id(deps.storage, ica_idx, icq_id);
+            state::set_ica_delegations_icq_id(deps.storage, &ica_idx, icq_id);
         }
 
         _ => {
@@ -306,11 +306,11 @@ pub fn query_ica_metadata(
 ) -> Result<IcaMetadataResponse, Error> {
     ica_idx_in_bounds(deps, ica_idx)?;
 
-    let maybe_ica_addr = state::ica_addr(deps.storage, ica_idx);
+    let maybe_ica_addr = state::ica_addr(deps.storage, &ica_idx);
 
-    let maybe_balance_icq_id = state::ica_balance_icq_id(deps.storage, ica_idx);
+    let maybe_balance_icq_id = state::ica_balance_icq_id(deps.storage, &ica_idx);
 
-    let maybe_delegations_icq_id = state::ica_delegations_icq_id(deps.storage, ica_idx);
+    let maybe_delegations_icq_id = state::ica_delegations_icq_id(deps.storage, &ica_idx);
 
     let metadata = maybe_ica_addr
         .zip(maybe_balance_icq_id)
@@ -332,7 +332,7 @@ pub fn query_last_ica_balance(
 ) -> Result<IcaLastBalanceResponse, Error> {
     ica_idx_in_bounds(deps, ica_idx)?;
 
-    let Some(icq_id) = state::ica_balance_icq_id(deps.storage, ica_idx) else {
+    let Some(icq_id) = state::ica_balance_icq_id(deps.storage, &ica_idx) else {
         return Ok(IcaLastBalanceResponse::default());
     };
 
@@ -347,7 +347,7 @@ pub fn query_last_ica_balance(
     };
 
     let address =
-        state::ica_addr(deps.storage, ica_idx).expect("a registered ica has an address set");
+        state::ica_addr(deps.storage, &ica_idx).expect("a registered ica has an address set");
 
     let last_balance = IcaLastBalance {
         balance,
@@ -366,7 +366,7 @@ pub fn query_last_ica_delegation(
 ) -> Result<IcaLastDelegationResponse, Error> {
     ica_idx_in_bounds(deps, ica_idx)?;
 
-    let Some(icq_id) = state::ica_delegations_icq_id(deps.storage, ica_idx) else {
+    let Some(icq_id) = state::ica_delegations_icq_id(deps.storage, &ica_idx) else {
         return Ok(IcaLastDelegationResponse::default());
     };
 
