@@ -17,5 +17,5 @@ jobs:
           # Mostly to avoid GitHub rate limiting
           extra_nix_config: |
             access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
-      - name: test_e2e
+      - name: build
         run: nix develop --command bash -c "cargo x dist"
