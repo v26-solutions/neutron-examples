@@ -45,6 +45,7 @@
             nagy-nur.packages.${system}.rustfilt
             go
           ];
+          GOROOT = "${go}/share/go";
         };
       }
     );
