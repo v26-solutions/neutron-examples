@@ -6,8 +6,8 @@ permissions:
 name: CI
 
 jobs:
-  test_e2e:
-    name: test_e2e
+  build:
+    name: build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -18,4 +18,4 @@ jobs:
           extra_nix_config: |
             access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
       - name: test_e2e
-        run: nix develop --command bash -c "cargo x test e2e"
+        run: nix develop --command bash -c "cargo x dist"

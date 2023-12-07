@@ -44,6 +44,7 @@
             twiggy
             nagy-nur.packages.${system}.rustfilt
             go
+            tmux
           ];
           GOROOT = "${go}/share/go";
         };
