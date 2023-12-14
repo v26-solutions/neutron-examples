@@ -1,0 +1,21 @@
+on: [push]
+
+permissions:
+  contents: write
+
+name: CI
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install Nix
+        uses: cachix/install-nix-action@v17
+        with:
+          # Mostly to avoid GitHub rate limiting
+          extra_nix_config: |
+            access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
+      - name: build
+        run: nix develop --command bash -c "cargo x dist"
